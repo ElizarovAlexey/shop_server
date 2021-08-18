@@ -1,0 +1,9 @@
+flask
+fkask-restful
+flask_sqlalchemy
+marsmallow
+marshmallow_sqlalchemy
+flask_migrate
+alembic
+flask-cors
+psycopg2
