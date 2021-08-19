@@ -1,7 +1,7 @@
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 from marshmallow_sqlalchemy.fields import Nested
 
-from src.models.models import Product, Category
+from src.models.models import Product, Category, Size
 
 
 class ProductSchema(SQLAlchemyAutoSchema):
@@ -21,3 +21,12 @@ class CategorySchema(SQLAlchemyAutoSchema):
         include_fk = True
 
     category = Nested('CategorySchema', many=True)
+
+
+class SizeSchema(SQLAlchemyAutoSchema):
+    class Meta:
+        model = Size
+        load_instance = True
+        include_fk = True
+
+    size = Nested('SizeSchema', many=True)
