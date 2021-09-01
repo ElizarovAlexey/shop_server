@@ -1,4 +1,8 @@
+import datetime
 import uuid
+
+from werkzeug.security import generate_password_hash
+
 from src import db
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
@@ -87,10 +91,12 @@ class Order(db.Model):
     city = db.Column(db.String(120), nullable=False)
     total_price = db.Column(db.Integer, nullable=False)
     commentary = db.Column(db.String(120))
+    state = db.Column(db.String(30))
+    date = db.Column(db.DateTime)
 
     items = db.Column(ARRAY(JSONB), default=[])
 
-    def __init__(self, email, phone, name, city, total_price, commentary, items):
+    def __init__(self, email, phone, name, city, total_price, commentary, items, date):
         self.email = email
         self.phone = phone
         self.name = name
@@ -98,3 +104,26 @@ class Order(db.Model):
         self.total_price = total_price
         self.commentary = commentary
         self.items = items
+        self.state = 'В обработке'
+        self.date = date
+
+
+class User(db.Model):
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    email = db.Column(db.String(50), unique=True, nullable=False)
+    password = db.Column(db.String(254), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    uuid = db.Column(db.String(36), unique=True)
+
+    def __init__(self, username, email, password, is_admin=False):
+        self.username = username
+        self.email = email
+        self.password = generate_password_hash(password)
+        self.is_admin = is_admin
+        self.uuid = str(uuid.uuid4())
+
+    def __repr__(self):
+        return f'User({self.username}, {self.email}, {self.uuid})'

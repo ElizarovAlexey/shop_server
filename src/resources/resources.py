@@ -1,20 +1,44 @@
-import json
+import datetime
 import os
+from functools import wraps
 
-from flask import request
+import jwt
+from flask import request, jsonify
 from flask_restful import Resource
 from marshmallow import ValidationError
+from sqlalchemy.exc import IntegrityError
+from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 
 import config
-from src.models.models import db, Size, products_sizes, Cart
+from src.models.models import db, Size, products_sizes, Cart, Order, User
 from src.models.models import Product, Category
-from src.schemas.schemas import ProductSchema, CategorySchema, SizeSchema, CartSchema, OrderSchema
+from src.schemas.schemas import ProductSchema, CategorySchema, SizeSchema, CartSchema, OrderSchema, UserSchema
 
 
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1] in config.ALLOWED_EXTENSIONS
+
+
+def token_required(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        token = request.headers.get('X-API-KEY', '')
+        if not token:
+            return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+
+        try:
+            uuid = jwt.decode(token, config.SECRET_KEY)['user_id']
+        except (KeyError, jwt.ExpiredSignatureError):
+            return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+
+        user = db.session.query(User).filter_by(uuid=uuid).first()
+        if not user:
+            return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+        return func(self, *args, **kwargs)
+
+    return wrapper
 
 
 class ProductListApi(Resource):
@@ -25,7 +49,7 @@ class ProductListApi(Resource):
         """ Output a list, or a single film """
         page = request.args.get('page', default=1, type=int)
         category = request.args.get('category', default=0, type=int)
-        per_page = 3
+        per_page = 6
         total_records = db.session.query(Product).count()
 
         if not uuid:
@@ -157,7 +181,7 @@ class SizesListApi(Resource):
 
         return self.size_schema.dump(sizes, many=True), 200
 
-ng
+
 class CartApi(Resource):
     cart_schema = CartSchema()
 
@@ -230,6 +254,29 @@ class CartApi(Resource):
 class OrderApi(Resource):
     order_schema = OrderSchema()
 
+    @token_required
+    def get(self):
+        page = request.args.get('page', default=1, type=int)
+        state = request.args.get('state', default='', type=str)
+        per_page = 10
+        total_records = db.session.query(Order).count()
+
+        try:
+            if state == '':
+                orders = db.session.query(Order).paginate(page, per_page)
+            else:
+                orders = db.session.query(Order).filter_by(state=state).paginate(page, per_page)
+                total_records = db.session.query(Order).filter_by(state=state).count()
+            if not orders:
+                return []
+        except ValidationError as e:
+            return {'Error': str(e)}, 400
+
+        return {
+                   'orders': self.order_schema.dump(orders.items, many=True),
+                   'total_records': total_records
+               }, 200
+
     def post(self):
         try:
             req_data = request.json
@@ -244,3 +291,62 @@ class OrderApi(Resource):
         db.session.commit()
 
         return self.order_schema.dump(order_item), 201
+
+    def put(self):
+        """ Change an order item """
+        req_data = request.json
+
+        order_item = Order.query.get(req_data['id'])
+
+        if not order_item:
+            return {'Error': 'Object was not found'}, 404
+
+        order_item.state = request.json['state']
+
+        db.session.commit()
+        return self.order_schema.dump(order_item), 200
+
+
+class AuthRegister(Resource):
+    user_schema = UserSchema()
+
+    def post(self):
+        try:
+            user = self.user_schema.load(request.json, session=db.session)
+        except ValidationError as e:
+            return {'Error': str(e)}
+
+        try:
+            db.session.add(user)
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return {'Error': 'Such user exists'}, 409
+        return self.user_schema.dump(user), 201
+
+
+class AuthLogin(Resource):
+    def get(self):
+        auth = request.authorization
+        if not auth:
+            return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+
+        user = db.session.query(User).filter_by(username=auth.get('username', '')).first()
+        if not user or not check_password_hash(user.password, auth.get('password', '')):
+            return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+
+        token = jwt.encode(
+            {
+                'user_id': user.uuid,
+                'exp': datetime.datetime.now() + datetime.timedelta(hours=1)
+            }, config.SECRET_KEY
+        )
+
+        print('token', token.decode('utf-8'))
+
+        return jsonify(
+            {
+                'token': token.decode('utf-8')
+            }
+        )
+

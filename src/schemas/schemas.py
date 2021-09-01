@@ -1,7 +1,7 @@
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 from marshmallow_sqlalchemy.fields import Nested
 
-from src.models.models import Product, Category, Size, Cart, Order
+from src.models.models import Product, Category, Size, Cart, Order, User
 
 
 class ProductSchema(SQLAlchemyAutoSchema):
@@ -41,3 +41,11 @@ class OrderSchema(SQLAlchemyAutoSchema):
     class Meta:
         model = Order
         load_instance = True
+
+
+class UserSchema(SQLAlchemyAutoSchema):
+    class Meta:
+        model = User
+        exclude = ('id', 'is_admin')
+        load_instance = True
+        load_only = ('password',)

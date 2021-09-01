@@ -6,6 +6,7 @@ UPLOAD_FOLDER = 'static/photos'
 
 ALLOWED_EXTENSIONS = set(['txt', 'png', 'jpg', 'jpeg'])
 
+SECRET_KEY = 'mysecret'
 
 POSTGRES = {
     'user': 'postgres',
