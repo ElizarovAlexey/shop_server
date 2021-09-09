@@ -7,7 +7,6 @@ from src.models.models import Product, Category, Size, Cart, Order, User
 class ProductSchema(SQLAlchemyAutoSchema):
     class Meta:
         model = Product
-        exclude = ['id']
         load_instance = True
         include_fk = True
 
@@ -35,6 +34,7 @@ class CartSchema(SQLAlchemyAutoSchema):
     class Meta:
         model = Cart
         load_instance = True
+        include_fk = True
 
 
 class OrderSchema(SQLAlchemyAutoSchema):
@@ -46,6 +46,5 @@ class OrderSchema(SQLAlchemyAutoSchema):
 class UserSchema(SQLAlchemyAutoSchema):
     class Meta:
         model = User
-        exclude = ('id', 'is_admin')
         load_instance = True
         load_only = ('password',)

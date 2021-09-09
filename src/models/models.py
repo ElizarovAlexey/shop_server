@@ -1,4 +1,3 @@
-import datetime
 import uuid
 
 from werkzeug.security import generate_password_hash
@@ -26,6 +25,7 @@ class Product(db.Model):
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'))
     sizes = db.relationship('Size', secondary=products_sizes, lazy='dynamic',
                             backref=db.backref('products', lazy=True))
+    cart_items = db.relationship('Cart', backref="products", lazy="dynamic")
 
     def __init__(self, title, price, image):
         self.title = title
@@ -62,23 +62,19 @@ class Cart(db.Model):
     __tablename__ = 'cart'
 
     id = db.Column(db.Integer, primary_key=True)
-    product_title = db.Column(db.String(120), nullable=False)
-    product_price = db.Column(db.Integer, nullable=False)
-    product_image = db.Column(db.String(120), nullable=False)
-    product_size = db.Column(db.Integer, nullable=False)
-    product_count = db.Column(db.Integer, nullable=False)
-    product_uuid = db.Column(db.String(36))
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'))
+    product_size = db.Column(db.Integer)
+    product_count = db.Column(db.Integer)
 
-    def __init__(self, product_title, product_price, product_image, product_size, product_count, product_uuid):
-        self.product_title = product_title
-        self.product_price = product_price
-        self.product_image = product_image
+    def __init__(self, user_id, product_id, product_size, product_count):
+        self.user_id = user_id
+        self.product_id = product_id
         self.product_size = product_size
         self.product_count = product_count
-        self.product_uuid = product_uuid
 
     def __repr__(self):
-        return f'Cart({self.product_title}, {self.product_price}, {self.product_size})'
+        return f'Cart({self.id, self.product_id})'
 
 
 class Order(db.Model):
@@ -117,6 +113,7 @@ class User(db.Model):
     password = db.Column(db.String(254), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
     uuid = db.Column(db.String(36), unique=True)
+    cart_items = db.relationship('Cart', backref="users", lazy="dynamic")
 
     def __init__(self, username, email, password, is_admin=False):
         self.username = username

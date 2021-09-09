@@ -3,7 +3,7 @@ import os
 from functools import wraps
 
 import jwt
-from flask import request, jsonify
+from flask import request, jsonify, make_response
 from flask_restful import Resource
 from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
@@ -11,8 +11,9 @@ from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 
 import config
-from src.models.models import db, Size, products_sizes, Cart, Order, User
+from src import app
 from src.models.models import Product, Category
+from src.models.models import db, Size, products_sizes, Cart, Order, User
 from src.schemas.schemas import ProductSchema, CategorySchema, SizeSchema, CartSchema, OrderSchema, UserSchema
 
 
@@ -21,21 +22,29 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1] in config.ALLOWED_EXTENSIONS
 
 
+@app.route('/check_token', methods=['GET'])
+def check_token():
+    token = request.headers.get('Authorization', '')
+
+    if not token:
+        return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+
+    try:
+        uuid = jwt.decode(token, config.SECRET_KEY, algorithms=["HS256"])['user_id']
+        print(uuid)
+    except (KeyError, jwt.ExpiredSignatureError):
+        return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+
+    user = db.session.query(User).filter_by(uuid=uuid).first()
+    if not user:
+        return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+    return UserSchema().dump(user), 200
+
+
 def token_required(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-        token = request.headers.get('X-API-KEY', '')
-        if not token:
-            return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
-
-        try:
-            uuid = jwt.decode(token, config.SECRET_KEY)['user_id']
-        except (KeyError, jwt.ExpiredSignatureError):
-            return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
-
-        user = db.session.query(User).filter_by(uuid=uuid).first()
-        if not user:
-            return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+        check_token()
         return func(self, *args, **kwargs)
 
     return wrapper
@@ -187,15 +196,18 @@ class CartApi(Resource):
 
     def get(self):
         """ Get a cart item """
+        user_id = request.args.get('user_id', default=0, type=int)
 
-        cart_items = db.session.query(Cart).all()
+        if user_id != 0:
+            cart_items = db.session.query(Cart).filter_by(user_id=user_id).all()
+        else:
+            return []
+
         total_price = 0
 
         for item in cart_items:
-            total_price += item.product_count * item.product_price
-
-        if not cart_items:
-            return []
+            total_price += item.product_count * db.session.query(Product).filter_by(
+                id=item.product_id).first().price
 
         return {
                    'total_price': total_price,
@@ -207,7 +219,7 @@ class CartApi(Resource):
 
         try:
             req_data = self.cart_schema.dump(request.json)
-            item = db.session.query(Cart).filter_by(product_uuid=req_data['product_uuid']).first()
+            item = db.session.query(Cart).filter_by(product_id=req_data['product_id']).first()
 
             if item and item.product_size == req_data['product_size']:
                 item.product_count += req_data['product_count']
@@ -224,7 +236,7 @@ class CartApi(Resource):
 
     def put(self):
         """ Change a cart item """
-        req_data = self.cart_schema.dump(request.json)
+        req_data = request.json
 
         cart_item = db.session.query(Cart).filter_by(id=req_data['id']).first()
         if not cart_item:
@@ -254,7 +266,6 @@ class CartApi(Resource):
 class OrderApi(Resource):
     order_schema = OrderSchema()
 
-    @token_required
     def get(self):
         page = request.args.get('page', default=1, type=int)
         state = request.args.get('state', default='', type=str)
@@ -314,39 +325,46 @@ class AuthRegister(Resource):
         try:
             user = self.user_schema.load(request.json, session=db.session)
         except ValidationError as e:
-            return {'Error': str(e)}
+            return {
+                       'Error': str(e),
+                       'status_code': 409
+                   }, 400
 
         try:
             db.session.add(user)
             db.session.commit()
         except IntegrityError:
             db.session.rollback()
-            return {'Error': 'Such user exists'}, 409
-        return self.user_schema.dump(user), 201
+            return {
+                       'Error': 'Such user exists',
+                       'status_code': 409
+                   }, 409
+        return {
+                   'user': self.user_schema.dump(user),
+                   'status_code': 201
+               }, 201
 
 
 class AuthLogin(Resource):
-    def get(self):
-        auth = request.authorization
+    def post(self):
+        auth = request.json
+
         if not auth:
-            return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+            return make_response('', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"})
 
         user = db.session.query(User).filter_by(username=auth.get('username', '')).first()
         if not user or not check_password_hash(user.password, auth.get('password', '')):
-            return '', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"}
+            return make_response('', 401, {"WWW-Authenticate": "Basic realm='Authentication required'"})
 
         token = jwt.encode(
             {
-                'user_id': user.uuid,
-                'exp': datetime.datetime.now() + datetime.timedelta(hours=1)
+                "user_id": user.uuid,
+                "exp": datetime.datetime.now() + datetime.timedelta(hours=1)
             }, config.SECRET_KEY
         )
 
-        print('token', token.decode('utf-8'))
-
         return jsonify(
             {
-                'token': token.decode('utf-8')
+                'token': token
             }
         )
-
